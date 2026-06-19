@@ -3,23 +3,53 @@ from nonebot.log import logger
 import httpx
 import re
 import json
-from .读取词库 import data_dir
+from pathlib import Path
+from nonebot import get_driver
+
+
+data_dir = Path(__file__).parent.parent / "词库插件"
+
+ck_path = data_dir / "词库文件"
 
 file_path = data_dir / "data"
 if not file_path.exists():
     file_path.mkdir(parents=True, exist_ok=True)
 
+import hashlib
+
+_should_exit_loop = False
+
+def set_exit_flag():
+    global _should_exit_loop
+    _should_exit_loop = True
+
+driver = get_driver()
+
+@driver.on_shutdown
+async def shutdown_handler():
+    set_exit_flag()
+
+def hash_string(text: str) -> str:
+    # 将字符串编码为字节，然后计算哈希
+    hash_obj = hashlib.sha256(text.encode('utf-8'))
+    return hash_obj.hexdigest()
+
 
 async def safe_value(value:str,str_type=True):
-    value = value.replace("{","{{").replace("}","}}").replace("'","\\'")
-    try:
-        res = int(value)
-        return res
-    except:
-        if str_type:
-            return f"f'{value}'"
-        else:
-            return value
+    if value is not None and bool:
+        value = value.replace("{","{{").replace("}","}}").replace("'","\\'")
+        try:
+            res = int(value)
+            return res
+        except:
+            if str_type:
+                return f"f'{value}'"
+            else:
+                return value
+    return value
+
+async def inline_kb_md(show,text):
+    return f"[](mqqapi://aio/inlinecmd?command={text}&enter=false)[{show}](mqqapi://aio/inlinecmd?command={text}&enter=false1)"
 
 async def read_txt(user_path, user_value, user_key=None,file_path=file_path):
     user_path = str(user_path)

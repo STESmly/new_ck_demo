@@ -1,12 +1,12 @@
 import asyncio
 import sys
-from .读取词库 import build_ciku, data_dir,ck_path
+from .读取词库 import build_ciku, data_dir,ck_path,logger
 from .规则导入器 import Matcher as mod1
 from pathlib import Path
 import hashlib
 from nonebot import load_plugin,get_driver
 from watchfiles import awatch
-
+from .keyboard_creator import *
 py_path = data_dir / "ck_plugins"
 hash_path = data_dir / "hashes"
 
@@ -129,25 +129,21 @@ async def on_ck_file_modified(file_path: str):
     当 .ck 文件被修改时，在此异步函数中编写你需要执行的操作。
     该函数会在监测到修改事件后被异步调用。
     """
-    print(f"[调用异步函数] 文件已被修改: {file_path}")
+    logger.info(f"检测到文件已被修改: {file_path}")
     # TODO: 在这里添加你的异步业务逻辑（例如异步重新加载模型、触发训练等）
     asyncio.create_task(编译词库())
 
 
 async def monitor_ck_files():
     """异步监测目录中所有 .ck 文件的修改事件"""
-    print(f"开始异步监测目录: {WATCH_DIRECTORY}")
-    print("监测所有 .ck 文件的修改事件，按 Ctrl+C 停止...")
+    logger.info(f"开始异步监测目录: {WATCH_DIRECTORY}")
+    logger.info("监测所有 .ck 文件的修改事件，按 Ctrl+C 停止...")
     asyncio.create_task(编译词库())
 
-    # awatch 返回异步生成器，每次产生 (changes, path) 元组
     async for changes in awatch(WATCH_DIRECTORY):
-        # changes 是一个列表，每个元素为 (change_type, path)
-        # change_type 可以是 'modified', 'added', 'deleted' 等
         for change_type, file_path in changes:
-            if change_type <=3 :        # 只处理修改事件
+            if change_type <=3 :
                 if file_path.lower().endswith('.ck'):
-                    # ★★★★★ 在此处异步调用你的函数 ★★★★★
                     await on_ck_file_modified(file_path)
 
 

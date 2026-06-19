@@ -1,10 +1,7 @@
 import re
-from pathlib import Path
 import os, asyncio
+from .basic_method import hash_string,data_dir,ck_path,logger
 
-data_dir = Path(__file__).parent.parent / "词库插件"
-
-ck_path = data_dir / "词库文件"
 
 async def get_text(file_path):
     result = []
@@ -90,7 +87,6 @@ async def fix_tab(code: list):
             break_type = False
             tab_time -= 2
             result.append('    '*tab_time + 'except asyncio.CancelledError:')
-            result.append('    '* (tab_time+1)+'print("[Plugin] Loop cancelled")')
             result.append('    '*(tab_time+1)+'raise')
     else:
         for i in range(0,while_try_time):
@@ -98,7 +94,6 @@ async def fix_tab(code: list):
             result.append('    ' * (tab_time+2) + 'break')
             tab_time -= 2
             result.append('    '*(tab_time+1) + 'except asyncio.CancelledError:')
-            result.append('    '* (tab_time+2)+'print("[Plugin] Loop cancelled")')
             result.append('    '*(tab_time+2)+'raise')
     return result
     
@@ -112,22 +107,8 @@ from nonebot.adapters.qq import Bot as botqq, GroupMessageCreateEvent,C2CMessage
 from nonebot.adapters.qq.models.common import MessageMarkdown, MessageMarkdownParams, MessageKeyboard, InlineKeyboard, InlineKeyboardRow, Button, RenderData, Action, Permission
 from ..basic_method import *
 from ..adapters_method import *
+from ..html_render import *
 import asyncio
-from nonebot import get_driver
-
-_should_exit_loop = False
-
-def set_exit_flag():
-    global _should_exit_loop
-    _should_exit_loop = True
-    print("[Plugin] Exit flag set")
-
-driver = get_driver()
-
-@driver.on_shutdown
-async def shutdown_handler():
-    print("[Plugin] Shutdown triggered, exiting loop...")
-    set_exit_flag()
 """
     back = []
     for item in all_text:
@@ -140,18 +121,17 @@ async def shutdown_handler():
                 canshu = can[1].split(" ")
                 can_list = ""
                 can_list = ",".join(canshu)
-                res += f"\nasync def 有参{can[0]}(bot: botv11 | botqq, event: PrivateMessageEvent|GroupMessageEvent|GroupMessageCreateEvent|C2CMessageCreateEvent, regex_group: tuple[str, ...],{can_list}):\n"
+                res += f"\nasync def 有参_{hash_string(can[0])}(bot: botv11 | botqq, event: PrivateMessageEvent|GroupMessageEvent|GroupMessageCreateEvent|C2CMessageCreateEvent, regex_group: tuple[str, ...],{can_list}):\n"
                 for line in code_res:
                     res += f"    {line}\n"
             elif ma:=re.match('^\[内部\](.*)$',code['指令']):
-                res += f"\nasync def 无参{ma.groups()[0]}(bot: botv11 | botqq, event: PrivateMessageEvent|GroupMessageEvent|GroupMessageCreateEvent|C2CMessageCreateEvent, regex_group: tuple[str, ...]):\n"
+                res += f"\nasync def 无参_{hash_string(ma.groups()[0])}(bot: botv11 | botqq, event: PrivateMessageEvent|GroupMessageEvent|GroupMessageCreateEvent|C2CMessageCreateEvent, regex_group: tuple[str, ...]):\n"
                 for line in code_res:
                     res += f"    {line}\n"
             else:
-
-                res += f"{code['指令']} = on_regex(r'^{code['指令']}$')\n"
-                res += f"@{code['指令']}.handle()"
-                res += f"\nasync def {code['指令']}(bot: botv11 | botqq, event: PrivateMessageEvent|GroupMessageEvent|GroupMessageCreateEvent|C2CMessageCreateEvent, regex_group: tuple[str, ...] = RegexGroup()):\n"
+                res += f"指令_{hash_string(code['指令'])} = on_regex(r'^{code['指令']}$')\n"
+                res += f"@指令_{hash_string(code['指令'])}.handle()"
+                res += f"\nasync def 指令_{hash_string(code['指令'])}(bot: botv11 | botqq, event: PrivateMessageEvent|GroupMessageEvent|GroupMessageCreateEvent|C2CMessageCreateEvent, regex_group: tuple[str, ...] = RegexGroup()):\n"
                 for line in code_res:
                     res += f"    {line}\n"
         back.append(

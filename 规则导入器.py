@@ -1,7 +1,41 @@
 import re
 from functools import wraps
 from typing import Callable, Any, Dict, List, Tuple
-from .basic_method import safe_value,extract_and_split,list_to_number,convert_message_string
+from .basic_method import safe_value,extract_and_split,list_to_number,convert_message_string,hash_string
+
+
+def _is_inside_fstring(s: str, pos: int) -> bool:
+    """Check if position `pos` in string `s` is inside an f-string (f"..." or f'...')."""
+    in_string = False
+    string_char = None
+    is_fstring = False
+    i = 0
+    while i < pos:
+        if not in_string:
+            if i + 1 < len(s) and s[i] == 'f' and s[i+1] in ('"', "'"):
+                in_string = True
+                string_char = s[i+1]
+                is_fstring = True
+                i += 2
+                continue
+            elif s[i] in ('"', "'"):
+                in_string = True
+                string_char = s[i]
+                is_fstring = False
+                i += 1
+                continue
+        else:
+            if s[i] == '\\':
+                i += 2  # Skip escaped character
+                continue
+            elif s[i] == string_char:
+                in_string = False
+                string_char = None
+                is_fstring = False
+                i += 1
+                continue
+        i += 1
+    return in_string and is_fstring
 
 class Matcher:
     """
@@ -46,6 +80,8 @@ class Matcher:
 写文件1 = Matcher("\$写文件 ([^\$]*) ([^\$]*) ([^\$]*)\$", re.findall, priority=1)
 写文件2 = Matcher("\$写文件 ([^\$]*) ([^\$]*)\$", re.findall, priority=1)
 访问 = Matcher("\$访问 ([^\$]+?)(?: ([^\$]+?))?(?: ([^\$]+?))?(?: ([^\$]+?))?\$", re.findall, priority=1)
+html渲染 = Matcher("\$html ([^\$]+?)(?: ([^\$]+?))?(?: ([^\$]+?))?\$", re.findall, priority=1)
+md直发按钮 = Matcher("\$直发按钮 ([^\$]*) ([^\$]*)\$",re.findall,priority=1)
 循环 = Matcher("\n\s*循环(.*)", re.findall, priority=1)
 调用 = Matcher("\$调用 ([^\$]+?)(?: #([^\$]+?))?\$", re.findall, priority=1)
 
@@ -86,6 +122,7 @@ async def _(text,line):
         line = line.replace(f'$写文件 {test_data[0]} {test_data[1]}$', f"await write_txt({await safe_value(test_data[0])},{await safe_value(test_data[1])})")
     return line
 
+
 @访问.handle()
 async def _(text,line):
     for test_data in text:
@@ -99,6 +136,22 @@ async def _(text,line):
         line = line.replace(f'$访问 {url}$', f"await get_url({await safe_value(url)})")
     return line
 
+@html渲染.handle()
+async def _(text,line):
+    for test_data in text:
+        url = test_data[0] if len(test_data) >= 1 else '空文件或路径错误'
+        宽 = test_data[1] if len(test_data) >= 2 else None
+        高 = test_data[2] if len(test_data) >= 3 else None
+        line = line.replace(f'$html {url} {宽} {高}$', f"await html_to_png({await safe_value(url)}, {await safe_value(宽)},{await safe_value(高)})")
+        line = line.replace(f'$html {url}$', f"await html_to_png({await safe_value(url)})")
+    return line
+
+@md直发按钮.handle()
+async def _(text,line):
+    for test_data in text:
+        line = line.replace(f'$直发按钮 {test_data[0]} {test_data[1]}$',f"await inline_kb_md({await safe_value(test_data[0])},{await safe_value(test_data[1])})")
+    return line 
+
 @循环.handle()
 async def _(text,line):
     for test_data in text:
@@ -108,7 +161,7 @@ async def _(text,line):
 @调用.handle()
 async def _(text,line):
     for test_data in text:
-        fun_name = f"有参{test_data[0]}" if len(test_data[1]) > 0 else f"无参{test_data[0]}"
+        fun_name = f"有参_{hash_string(test_data[0])}" if len(test_data[1]) > 0 else f"无参_{hash_string(test_data[0])}"
         can_list = str(test_data[1]).split("#")
         res_can = ''
         for can in can_list if len(test_data[1]) > 0 else []:
@@ -120,17 +173,35 @@ async def _(text,line):
         line = line.replace(f'$调用 {test_data[0]} #{test_data[1]}$',f"await {fun_name}(bot,event,regex_group{res_can})")
     return line
 
-@变量调用.handle() 
+@变量调用.handle()
 async def _(text,line):
     for test_data in text:
+        # Build the replacement expression (without outer braces)
         if test_data == "QQ":
-            line = line.replace(f"%QQ%", '{getattr(event, "user_id", None) or (event.get_user_id() if hasattr(event, "get_user_id") else None) or " "}')
+            replacement = 'getattr(event, "user_id", None) or (event.get_user_id() if hasattr(event, "get_user_id") else None) or " "'
         elif test_data == "群号":
-            line = line.replace(f"%群号%", '{getattr(event, "group_id", None) or getattr(event, "group_openid", None) or " "}')
+            replacement = 'getattr(event, "group_id", None) or getattr(event, "group_openid", None) or " "'
         elif test_data == "昵称":
-            line = line.replace(f"%昵称%", '{await get_sender_name(event)}')
+            replacement = 'await get_sender_name(event)'
+        elif res_match := re.match("^括号([0-9]+)$",test_data):
+            replacement = f'regex_group[{int(res_match.groups()[0])-1 if int(res_match.groups()[0])-1>=1 else 0}] if regex_group else None'
         else:
-            line = line.replace(f"%{test_data}%", f'{{locals().get("{test_data}", " ")}}')
+            replacement = f'locals().get("{test_data}", " ")'
+        # Replace each occurrence: wrap with {} only if inside an f-string
+        pattern = f"%{test_data}%"
+        result: list[str] = []
+        last_end = 0
+        idx = line.find(pattern)
+        while idx != -1:
+            result.append(line[last_end:idx])
+            if _is_inside_fstring(line, idx):
+                result.append(f'{{{replacement}}}')
+            else:
+                result.append(replacement)
+            last_end = idx + len(pattern)
+            idx = line.find(pattern, last_end)
+        result.append(line[last_end:])
+        line = ''.join(result)
     return line
 
 @json转译.handle()
